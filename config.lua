@@ -9,7 +9,7 @@ Config.SearchCooldown      = 0.5          -- segundos de espera entre deteccion 
 Config.LootedRespawnTime   = 300          -- segundos antes de que un cadaver looteado pueda volver a ser looteado (solo en memoria)
 
 Config.ProgressBar = {
-    duration = 4000,
+    duration = 3000,
     label    = 'Buscando...',
     animDict = 'missheistdockssetup1clipboard@base',
     anim     = 'base',
@@ -192,12 +192,16 @@ Config.LootByModel = {
 -- ============================================================
 
 Config.PlayerBag = {
-    prop            = 'prop_cash_bag_01',
-    despawnMinutes  = 5,          -- minutos hasta que desaparece si nadie lo recoge
+    prop            = 'prop_cs_heist_bag_02',
+    despawnMinutes  = 45,          -- minutos hasta que desaparece si nadie lo recoge
     protectedItems  = {           -- items que NUNCA caen al maletin
         'map',
     },
 }
+
+Config.AnimalLootWeapon = 'weapon_knife'  -- arma requerida para lootear animales
+
+Config.DiscordWebhook = 'https://discord.com/api/webhooks/1478532917213794612/9fLQKjUXdYIz6xdC2_yKBg_OtKjTZOi0gmg7ZDzkM3pMwaFpnckFQ9BtmTgI8RYlZ1Dd'
 
 for typeName, typeData in pairs(Config.Types) do
     if typeData.probabilityLoots and typeData.probabilityLoots.items then

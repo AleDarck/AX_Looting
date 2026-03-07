@@ -59,8 +59,7 @@ html, body {
     transform: translate(-50%, -50%) scale(0.9);
     opacity: 0;
     z-index: 200;
-    width: 580px;
-    max-height: 580px;
+    width: 720px;
     display: flex;
     flex-direction: column;
     background: var(--bg-panel);
@@ -156,19 +155,22 @@ html, body {
    GRILLA - 3 columnas
 ============================================================ */
 .loot-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
     gap: 10px;
     padding: 16px;
-    overflow-y: auto;
-    flex: 1;
-    min-height: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    height: 220px;
+    flex-shrink: 0;
+    align-items: center;
 }
 
-.loot-grid::-webkit-scrollbar { width: 3px; }
+.loot-grid::-webkit-scrollbar { height: 4px; }
 .loot-grid::-webkit-scrollbar-track { background: transparent; }
 .loot-grid::-webkit-scrollbar-thumb {
-    background: var(--border-accent);
+    background: var(--red-primary);
     border-radius: 2px;
 }
 
@@ -186,6 +188,8 @@ html, body {
     gap: 7px;
     padding: 16px 10px 14px;
     height: 180px;
+    width: 140px;
+    flex-shrink: 0;
     cursor: pointer;
     position: relative;
     overflow: hidden;

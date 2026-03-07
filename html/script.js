@@ -65,7 +65,7 @@ function openPanel(items, path, delay, title, bagMode) {
 
     lootGrid.innerHTML = '';
     emptyState.classList.add('hidden');
-    lootGrid.style.display = 'grid';
+    lootGrid.style.display = 'flex';
 
     updateItemCount();
 
@@ -160,13 +160,11 @@ function createCard(item) {
     card.dataset.name  = item.name;
     card.dataset.count = item.count;
 
-    // Badge "RECOGER" (hover)
     const badge = document.createElement('div');
     badge.classList.add('collect-badge');
     badge.textContent = 'RECOGER';
     card.appendChild(badge);
 
-    // Spinner (visible mientras carga)
     const spinner = document.createElement('div');
     spinner.classList.add('item-spinner');
     const ring = document.createElement('div');
@@ -174,20 +172,18 @@ function createCard(item) {
     spinner.appendChild(ring);
     card.appendChild(spinner);
 
-    // Imagen (oculta hasta cargar, mismo espacio que el spinner)
     const img = document.createElement('img');
     img.classList.add('item-img');
     img.alt = item.name;
     card.appendChild(img);
 
-    // Nombre
     const nameEl = document.createElement('div');
     nameEl.classList.add('item-name');
-    nameEl.textContent = formatItemName(item.name);
-    nameEl.title = formatItemName(item.name);
+    const displayName = item.label ? item.label : formatItemName(item.name);
+    nameEl.textContent = displayName;
+    nameEl.title = displayName;
     card.appendChild(nameEl);
 
-    // Cantidad
     const countEl = document.createElement('div');
     countEl.classList.add('item-count');
     countEl.innerHTML = `x<span>${item.count}</span>`;
@@ -285,10 +281,21 @@ function showEmptyState() {
 
 btnClose.addEventListener('click', () => closePanel(true));
 btnCollectAll.addEventListener('click', collectAll);
+overlay.addEventListener('click', () => closePanel(true));
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !lootPanel.classList.contains('hidden')) {
+        closePanel(true);
+    }
+});
 
 // ============================================================
 //  MENSAJES NUI
 // ============================================================
+
+lootGrid.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    lootGrid.scrollLeft += e.deltaY;
+}, { passive: false });
 
 window.addEventListener('message', (event) => {
     const data = event.data;

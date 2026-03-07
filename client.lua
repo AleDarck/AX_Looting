@@ -13,6 +13,8 @@ local isUIOpen    = false
 local isSearching = false
 local nearbyBody  = nil       -- { entity, netId, lootType, isAnimal }
 local activeNetId = nil       -- netId del cuerpo que el jugador tiene abierto
+local carriedBagId  = nil   -- bagId que el jugador lleva en la mano
+local carriedObject = nil   -- entidad del prop que lleva
 
 -- ============================================================
 --  HELPERS
@@ -178,11 +180,21 @@ end)
 
 local function startSearch(body)
     if isSearching or isUIOpen then return end
+
+    -- Verificar arma requerida para animales
+    if body.isAnimal then
+        local requiredWeapon = joaat(Config.AnimalLootWeapon)
+        if not HasPedGotWeapon(PlayerPedId(), requiredWeapon, false) then
+            ESX.ShowNotification('Necesitas una Knife para deshuesar el animal')
+            return
+        end
+    end
+
     isSearching = true
 
     exports['AX_ProgressBar']:Progress({
         duration        = Config.ProgressBar.duration,
-        label           = Config.ProgressBar.label,
+        label           = body.isAnimal and 'Desollando...' or Config.ProgressBar.label,
         useWhileDead    = false,
         canCancel       = true,
         controlDisables = {
@@ -268,8 +280,8 @@ CreateThread(function()
     while true do
         if nearbyBody and not isUIOpen and not isSearching then
             local label = nearbyBody.isAnimal
-                and 'Presiona ~INPUT_CONTEXT~ para buscar en el animal'
-                or  'Presiona ~INPUT_CONTEXT~ para buscar en el cuerpo'
+                and '[E] para deshuesar el animal'
+                or  '[E] para buscar en el cuerpo'
 
             ESX.ShowHelpNotification(label)
 
@@ -309,7 +321,7 @@ local spawnedBags = {}  -- bagId => { entity, ownerName }
 local activeBagId = nil -- bagId que el jugador tiene abierto ahora
 
 -- Spawner el prop del maletin en las coords del jugador abatido
-RegisterNetEvent('AX_Looting:client:spawnPlayerBag', function(bagId, ownerName)
+RegisterNetEvent('AX_Looting:client:spawnPlayerBag', function(bagId, ownerName, ownerId)
     local ped    = PlayerPedId()
     local coords = GetEntityCoords(ped)
 
@@ -322,7 +334,7 @@ RegisterNetEvent('AX_Looting:client:spawnPlayerBag', function(bagId, ownerName)
     FreezeEntityPosition(bag, true)
     SetEntityCollision(bag, false, false)
 
-    spawnedBags[bagId] = { entity = bag, ownerName = ownerName }
+    spawnedBags[bagId] = { entity = bag, ownerName = ownerName, ownerId = ownerId }
 end)
 
 -- Servidor pide eliminar el maletin (despawn por tiempo o vaciado)
@@ -411,6 +423,21 @@ end)
 --  THREAD - Deteccion de maletines cercanos
 -- ============================================================
 
+local function isPlayerDowned()
+    local ped = PlayerPedId()
+    if IsPedDeadOrDying(ped, true) then return true end
+    if LocalPlayer.state.dead then return true end
+    -- esx_ambulancejob pone al jugador en esta animacion al abatirlo
+    local dict = GetEntityAnimCurrentTime(ped, 'dead', 'dead_a')
+    if dict > 0 then return true end
+    -- Verificacion por estado de salud critico
+    if GetEntityHealth(ped) <= 100 and not IsPedInAnyVehicle(ped, false) then
+        local animDict = GetAnimCurrentTime(ped, 'amb@world_human_dead_lying@face_up@base', 'base')
+        if animDict > 0 then return true end
+    end
+    return false
+end
+
 CreateThread(function()
     while true do
         if isUIOpen then
@@ -420,7 +447,7 @@ CreateThread(function()
             local foundBag     = nil
 
             for bagId, data in pairs(spawnedBags) do
-                if DoesEntityExist(data.entity) then
+                if DoesEntityExist(data.entity) and bagId ~= carriedBagId then
                     local dist = #(playerCoords - GetEntityCoords(data.entity))
                     if dist <= Config.DrawDistance then
                         foundBag = { bagId = bagId, data = data }
@@ -429,37 +456,82 @@ CreateThread(function()
                 end
             end
 
-            if foundBag and not isSearching then
-                ESX.ShowHelpNotification('Presiona ~INPUT_CONTEXT~ para registrar el maletin')
+            local myId      = GetPlayerServerId(PlayerId())
+            local isDead    = LocalPlayer.state.isDead or false
+            local isMine    = foundBag and foundBag.data.ownerId == myId
 
-                if IsControlJustPressed(0, 38) then
-                    isSearching = true
-                    exports['AX_ProgressBar']:Progress({
-                        duration        = Config.ProgressBar.duration,
-                        label           = 'Registrando maletin...',
-                        useWhileDead    = false,
-                        canCancel       = true,
-                        controlDisables = {
-                            disableMovement    = true,
-                            disableCarMovement = true,
-                            disableMouse       = false,
-                            disableCombat      = true,
-                        },
-                        animation = {
-                            animDict = Config.ProgressBar.animDict,
-                            anim     = Config.ProgressBar.anim,
-                            flags    = Config.ProgressBar.flags,
-                        },
-                    }, function(cancelled)
-                        isSearching = false
-                        if not cancelled then
-                            TriggerServerEvent('AX_Looting:server:requestBagLoot', foundBag.bagId)
-                        end
-                    end)
+            if carriedBagId then
+                local bagData = spawnedBags[carriedBagId]
+                if bagData and DoesEntityExist(bagData.entity) then
+                    local ped       = PlayerPedId()
+                    local boneIndex = GetPedBoneIndex(ped, 57005) -- mano derecha
+                    AttachEntityToEntity(bagData.entity, ped, boneIndex,
+                        0.18, -0.02, -0.03,
+                        -87.16, 5.38, 75.64,
+                        false, false, false, false, 2, true)
                 end
-            end
 
-            Wait(500)
+                if IsControlJustPressed(0, 73) then -- X
+                    local bagData2 = spawnedBags[carriedBagId]
+                    if bagData2 and DoesEntityExist(bagData2.entity) then
+                        DetachEntity(bagData2.entity, true, true)
+                        FreezeEntityPosition(bagData2.entity, true)
+                        PlaceObjectOnGroundProperly(bagData2.entity)
+                    end
+                    TriggerServerEvent('AX_Looting:server:dropBag', carriedBagId)
+                    carriedBagId = nil
+                end
+
+                Wait(0)
+
+            elseif foundBag and not isSearching and (not isMine or not isDead) then
+                ESX.ShowHelpNotification('[E] para lootear el maletin')
+                ESX.ShowHelpNotification('[G] para cargar el maletin')
+
+                if IsControlJustPressed(0, 38) then -- E
+                    if isMine and isDead then
+                        ESX.ShowNotification('No puedes abrir tu maletin mientras estas abatido')
+                    else
+                        isSearching = true
+                        exports['AX_ProgressBar']:Progress({
+                            duration        = Config.ProgressBar.duration,
+                            label           = 'Registrando maletin...',
+                            useWhileDead    = false,
+                            canCancel       = true,
+                            controlDisables = {
+                                disableMovement    = true,
+                                disableCarMovement = true,
+                                disableMouse       = false,
+                                disableCombat      = true,
+                            },
+                            animation = {
+                                animDict = Config.ProgressBar.animDict,
+                                anim     = Config.ProgressBar.anim,
+                                flags    = Config.ProgressBar.flags,
+                            },
+                        }, function(cancelled)
+                            isSearching = false
+                            if not cancelled then
+                                TriggerServerEvent('AX_Looting:server:requestBagLoot', foundBag.bagId)
+                            end
+                        end)
+                    end
+                end
+
+                if IsControlJustPressed(0, 47) then -- G
+                    if isMine and isDead then
+                        ESX.ShowNotification('No puedes tomar tu maletin mientras estas abatido')
+                    else
+                        carriedBagId = foundBag.bagId
+                        TriggerServerEvent('AX_Looting:server:pickupBag', foundBag.bagId)
+                        ESX.ShowNotification('Llevas la bolsa. Presiona (X) para soltarla')
+                    end
+                end
+
+                Wait(0)
+            else
+                Wait(500)
+            end
         end
     end
 end)

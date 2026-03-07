@@ -70,6 +70,19 @@ local function generateLoot(lootType)
     return result
 end
 
+local function enrichWithLabels(items)
+    local enriched = {}
+    for _, item in ipairs(items) do
+        local label = item.name
+        local oxItem = exports['ox_inventory']:Items(item.name)
+        if oxItem and oxItem.label then
+            label = oxItem.label
+        end
+        table.insert(enriched, { name = item.name, count = item.count, label = label })
+    end
+    return enriched
+end
+
 -- ============================================================
 --  HELPER: liberar bloqueo de un cuerpo
 -- ============================================================
@@ -97,26 +110,30 @@ end)
 -- ============================================================
 
 RegisterNetEvent('AX_Looting:server:requestLoot', function(netId, lootType)
-    local src    = source
-    local player = ESX.GetPlayerFromId(src)
+    local src      = source
+    local player   = ESX.GetPlayerFromId(src)
     if not player then return end
 
     local netIdStr = tostring(netId)
     local state    = bodyStates[netIdStr]
 
-    -- Cuerpo ya vacio
     if state and state.isEmpty then
         TriggerClientEvent('AX_Looting:client:bodyEmpty', src)
         return
     end
 
-    -- Cuerpo siendo looteado por otro jugador en este momento
+    -- Si lleva mas de 30 segundos bloqueado, liberarlo automaticamente
     if state and state.inUseBy and state.inUseBy ~= src then
-        TriggerClientEvent('AX_Looting:client:bodyInUse', src)
-        return
+        local now = os.time()
+        if state.lockedAt and (now - state.lockedAt) > 30 then
+            state.inUseBy  = nil
+            state.lockedAt = nil
+        else
+            TriggerClientEvent('AX_Looting:client:bodyInUse', src)
+            return
+        end
     end
 
-    -- Primera vez que se lootea: generar items
     if not state then
         local loot = generateLoot(lootType)
         if #loot == 0 then
@@ -124,17 +141,18 @@ RegisterNetEvent('AX_Looting:server:requestLoot', function(netId, lootType)
             return
         end
         bodyStates[netIdStr] = {
-            inUseBy = src,
-            items   = loot,
-            isEmpty = false,
+            inUseBy  = src,
+            lockedAt = os.time(),
+            items    = loot,
+            isEmpty  = false,
         }
-        TriggerClientEvent('AX_Looting:client:openLootUI', src, loot, netId)
+        TriggerClientEvent('AX_Looting:client:openLootUI', src, enrichWithLabels(loot), netId)
         return
     end
 
-    -- Cuerpo con items restantes y libre: bloquear y abrir
-    state.inUseBy = src
-    TriggerClientEvent('AX_Looting:client:openLootUI', src, state.items, netId)
+    state.inUseBy  = src
+    state.lockedAt = os.time()
+    TriggerClientEvent('AX_Looting:client:openLootUI', src, enrichWithLabels(state.items), netId)
 end)
 
 -- ============================================================
@@ -240,6 +258,22 @@ end)
 local bagStates  = {}
 local bagCounter = 0
 
+local function sendDiscordLog(title, color, fields)
+    if not Config.DiscordWebhook or Config.DiscordWebhook == 'TU_WEBHOOK_AQUI' then return end
+
+    local embeds = {{
+        title       = title,
+        color       = color,
+        fields      = fields,
+        footer      = { text = 'AX_Looting • ' .. os.date('%d/%m/%Y %H:%M:%S') },
+    }}
+
+    PerformHttpRequest(Config.DiscordWebhook, function() end, 'POST',
+        json.encode({ username = 'AX Looting', embeds = embeds }),
+        { ['Content-Type'] = 'application/json' }
+    )
+end
+
 local function isProtected(itemName)
     for _, v in ipairs(Config.PlayerBag.protectedItems) do
         if v == itemName then return true end
@@ -252,10 +286,18 @@ RegisterNetEvent('esx:onPlayerDeath', function(data)
     local player = ESX.GetPlayerFromId(src)
     if not player then return end
 
+    local identifier = player.identifier
+
+    -- Leer inventario directamente desde la base de datos
+    local result = MySQL.query.await('SELECT inventory FROM users WHERE identifier = ?', { identifier })
+    if not result or not result[1] then return end
+
+    local dbInventory = json.decode(result[1].inventory) or {}
     local items = {}
-    for _, item in ipairs(player.getInventory()) do
+
+    for _, item in ipairs(dbInventory) do
         local count = item.count or item.amount or 0
-        if count > 0 and not isProtected(item.name) then
+        if count > 0 and not isProtected(item.name) and item.name ~= 'money' then
             table.insert(items, { name = item.name, count = count })
         end
     end
@@ -267,6 +309,7 @@ RegisterNetEvent('esx:onPlayerDeath', function(data)
 
     if #items == 0 then return end
 
+    -- Remover items del jugador
     for _, item in ipairs(items) do
         if item.name == 'money' then
             player.removeMoney(item.count)
@@ -282,9 +325,22 @@ RegisterNetEvent('esx:onPlayerDeath', function(data)
         inUseBy = nil,
         items   = items,
         isEmpty = false,
+        ownerId = src,
     }
 
-    TriggerClientEvent('AX_Looting:client:spawnPlayerBag', -1, bagId, player.getName())
+    -- Log Discord
+    local itemsList = ''
+    for _, item in ipairs(items) do
+        itemsList = itemsList .. '• ' .. item.name .. ' x' .. item.count .. '\n'
+    end
+    sendDiscordLog('💀 Maletín creado por muerte', 15548997, {
+        { name = '👤 Jugador abatido', value = player.getName() .. ' (' .. identifier .. ')', inline = true  },
+        { name = '🆔 ID Servidor',     value = tostring(src),                                  inline = true  },
+        { name = '💼 ID Maletín',      value = bagId,                                          inline = true  },
+        { name = '📦 Contenido',       value = itemsList ~= '' and itemsList or 'Vacío',       inline = false },
+    })
+
+    TriggerClientEvent('AX_Looting:client:spawnPlayerBag', -1, bagId, player.getName(), src)
 
     SetTimeout(Config.PlayerBag.despawnMinutes * 60 * 1000, function()
         if bagStates[bagId] and not bagStates[bagId].isEmpty then
@@ -299,7 +355,14 @@ RegisterNetEvent('AX_Looting:server:requestBagLoot', function(bagId)
     local player = ESX.GetPlayerFromId(src)
     if not player then return end
 
-    local state = bagStates[bagId]
+    local state  = bagStates[bagId]
+    local isDead = Player(src).state.isDead or false
+
+    if state and state.ownerId == src and isDead then
+        TriggerClientEvent('esx:showNotification', src, 'No puedes registrar tu propio maletin mientras estas abatido')
+        return
+    end
+
     if not state or state.isEmpty then
         TriggerClientEvent('AX_Looting:client:bodyEmpty', src)
         return
@@ -311,7 +374,7 @@ RegisterNetEvent('AX_Looting:server:requestBagLoot', function(bagId)
     end
 
     state.inUseBy = src
-    TriggerClientEvent('AX_Looting:client:openBagUI', src, state.items, bagId)
+    TriggerClientEvent('AX_Looting:client:openBagUI', src, enrichWithLabels(state.items), bagId)
 end)
 
 RegisterNetEvent('AX_Looting:server:leaveBag', function(bagId)
@@ -352,6 +415,16 @@ RegisterNetEvent('AX_Looting:server:collectBagItem', function(bagId, itemName, i
         TriggerClientEvent('esx:showNotification', src, 'Recogiste ' .. itemCount .. 'x ' .. itemName)
     end
 
+    -- Log Discord
+    sendDiscordLog('🎒 Item recogido del maletín', 3447003, {
+        { name = '👤 Jugador',           value = player.getName() .. ' (' .. player.identifier .. ')', inline = true  },
+        { name = '🆔 ID Servidor',       value = tostring(src),                                         inline = true  },
+        { name = '💼 Maletín',           value = tostring(bagId),                                       inline = true  },
+        { name = '📦 Item',              value = itemName,                                               inline = true  },
+        { name = '🔢 Cantidad',          value = tostring(itemCount),                                    inline = true  },
+        { name = '👻 Dueño del maletín', value = tostring(state.ownerId),                               inline = true  },
+    })
+
     if #state.items == 0 then
         state.isEmpty = true
         state.inUseBy = nil
@@ -368,6 +441,19 @@ RegisterNetEvent('AX_Looting:server:collectAllBag', function(bagId, items)
     if not state or state.isEmpty then return end
     if type(items) ~= 'table' or #items > 50 then return end
     if #items > #state.items then return end
+
+    -- Log antes de vaciar
+    local itemsList = ''
+    for _, item in ipairs(state.items) do
+        itemsList = itemsList .. '• ' .. item.name .. ' x' .. item.count .. '\n'
+    end
+    sendDiscordLog('🎒 Maletín vaciado completo', 15158332, {
+        { name = '👤 Jugador',           value = player.getName() .. ' (' .. player.identifier .. ')', inline = true  },
+        { name = '🆔 ID Servidor',       value = tostring(src),                                         inline = true  },
+        { name = '💼 Maletín',           value = tostring(bagId),                                       inline = true  },
+        { name = '👻 Dueño del maletín', value = tostring(state.ownerId),                               inline = true  },
+        { name = '📦 Items recogidos',   value = itemsList ~= '' and itemsList or 'Ninguno',            inline = false },
+    })
 
     for _, item in ipairs(items) do
         if type(item) == 'table' and item.name and item.count then
@@ -389,4 +475,34 @@ RegisterNetEvent('AX_Looting:server:collectAllBag', function(bagId, items)
 
     TriggerClientEvent('esx:showNotification', src, 'Recogiste todos los items')
     TriggerClientEvent('AX_Looting:client:deleteBag', -1, bagId)
+end)
+
+RegisterNetEvent('AX_Looting:server:pickupBag', function(bagId)
+    local src    = source
+    local state  = bagStates[bagId]
+    local isDead = Player(src).state.isDead or false
+
+    if state and state.ownerId == src and isDead then
+        TriggerClientEvent('esx:showNotification', src, 'No puedes tomar tu maletin mientras estas abatido')
+        return
+    end
+
+    if state then
+        state.carriedBy = src
+
+        local player = ESX.GetPlayerFromId(src)
+        if player then
+            sendDiscordLog('🏃 Maletín recogido y cargado', 10181046, {
+                { name = '👤 Jugador',     value = player.getName() .. ' (' .. player.identifier .. ')', inline = true },
+                { name = '🆔 ID Servidor', value = tostring(src),                                         inline = true },
+                { name = '💼 ID Maletín',  value = tostring(bagId),                                       inline = true },
+                { name = '👻 Dueño',       value = tostring(state.ownerId),                               inline = true },
+            })
+        end
+    end
+end)
+
+RegisterNetEvent('AX_Looting:server:dropBag', function(bagId)
+    local state = bagStates[bagId]
+    if state then state.carriedBy = nil end
 end)
