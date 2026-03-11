@@ -188,6 +188,161 @@ Config.LootByModel = {
 }
 
 -- ============================================================
+--  LOOT DE PROPS
+-- ============================================================
+
+Config.PropLoot = {
+    drawDistance = 2.5,       -- metros para detectar el prop
+    cooldown     = 600,       -- segundos de cooldown global por prop (en memoria)
+
+    progressBar = {
+        duration = 4000,
+        label    = 'Buscando objetos...',
+        animDict = 'amb@prop_human_bum_bin@base',
+        anim     = 'base',
+        flags    = 49,
+    },
+
+    -- Mapeo modelo => tipo de loot
+    -- El tipo de loot usa la misma estructura de Config.Types
+    models = {
+        -- Basura
+        ['prop_dumpster_3a']          = 'prop_trash',
+        ['prop_skip_05a']             = 'prop_trash',
+        ['prop_dumpster_4b']          = 'prop_trash',
+        ['prop_bin_14a']              = 'prop_trash',
+        ['prop_dumpster_4a']          = 'prop_trash',
+        ['prop_dumpster_01a']         = 'prop_trash',
+        ['prop_dumpster_02a']         = 'prop_trash',
+        ['prop_dumpster_02b']         = 'prop_trash',
+        ['prop_rub_binbag_sd_01']     = 'prop_trash',
+        ['prop_ld_rub_binbag_01']     = 'prop_trash',
+        ['prop_rub_binbag_sd_02']     = 'prop_trash',
+        ['prop_ld_binbag_01']         = 'prop_trash',
+        ['prop_cs_rub_binbag_01']     = 'prop_trash',
+        ['prop_cs_street_binbag_01']  = 'prop_trash',
+        ['prop_rub_binbag_03b']       = 'prop_trash',
+        ['prop_rub_binbag_04']        = 'prop_trash',
+        ['prop_rub_binbag_01']        = 'prop_trash',
+        ['prop_rub_binbag_08']        = 'prop_trash',
+        ['prop_rub_binbag_05']        = 'prop_trash',
+        ['prop_rub_binbag_06']        = 'prop_trash',
+        ['prop_rub_binbag_03']        = 'prop_trash',
+        ['prop_rub_binbag_01b']       = 'prop_trash',
+        ['hei_prop_heist_binbag']     = 'prop_trash',
+        ['ng_proc_binbag_01a']        = 'prop_trash',
+        ['p_binbag_01_s']             = 'prop_trash',
+        -- Autos destruidos
+        ['prop_rub_carwreck_1']       = 'prop_carwreck',
+        ['prop_rub_carwreck_2']       = 'prop_carwreck',
+        ['prop_rub_carwreck_3']       = 'prop_carwreck',
+        ['prop_rub_carwreck_5']       = 'prop_carwreck',
+        ['prop_rub_carwreck_6']       = 'prop_carwreck',
+        ['prop_rub_carwreck_7']       = 'prop_carwreck',
+        ['prop_rub_carwreck_8']       = 'prop_carwreck',
+        ['prop_rub_carwreck_9']       = 'prop_carwreck',
+        ['prop_rub_carwreck_10']      = 'prop_carwreck',
+        ['prop_rub_carwreck_11']      = 'prop_carwreck',
+        ['prop_rub_carwreck_12']      = 'prop_carwreck',
+        ['prop_rub_carwreck_13']      = 'prop_carwreck',
+        ['prop_rub_carwreck_14']      = 'prop_carwreck',
+        ['prop_rub_carwreck_15']      = 'prop_carwreck',
+        ['prop_rub_carwreck_16']      = 'prop_carwreck',
+        ['prop_rub_carwreck_17']      = 'prop_carwreck',
+        ['prop_rub_carwreck_18']      = 'prop_carwreck',
+        ['prop_rub_carwreck_19']      = 'prop_carwreck',
+        ['prop_rub_carwreck_20']      = 'prop_carwreck',
+        -- Cajas de municion
+        ['prop_box_ammo01a']          = 'prop_ammobox',
+        ['prop_box_ammo02a']          = 'prop_ammobox',
+        ['prop_box_ammo04a']          = 'prop_ammobox',
+        ['prop_box_ammo06a']          = 'prop_ammobox_big',
+        ['hei_prop_hei_ammo_single']  = 'prop_ammobox_big',
+        ['hei_prop_hei_ammo_pile']    = 'prop_ammobox_big',
+        -- Cajas de pistolas
+        ['prop_box_guncase_02a']      = 'prop_guncase',
+        ['prop_box_guncase_01a']      = 'prop_guncase',
+        ['prop_box_guncase_03a']      = 'prop_guncase',
+        -- ATM
+        ['prop_atm_01']               = 'prop_atm',
+        ['prop_atm_02']               = 'prop_atm',
+        ['prop_fleeca_atm']           = 'prop_atm',
+    },
+}
+
+-- Tipos de loot de props (misma estructura que Config.Types)
+Config.Types['prop_trash'] = {
+    fixedLoots = {},
+    probabilityLoots = {
+        loop = 2,
+        items = {
+            { names = { 'tornillos', 'plastic' },   minValue = 1, maxValue = 2, probability = 40 },
+            { names = { 'tela', 'rubber' },          minValue = 1, maxValue = 2, probability = 25 },
+            { names = { 'metalscrap' },              minValue = 1, maxValue = 3, probability = 20 },
+        }
+    },
+}
+
+Config.Types['prop_carwreck'] = {
+    fixedLoots = {},
+    probabilityLoots = {
+        loop = 3,
+        items = {
+            { names = { 'metalscrap' },                                                minValue = 1, maxValue = 4, probability = 35 },
+            { names = { 'cables', 'rubber', 'steel' },                                 minValue = 1, maxValue = 2, probability = 25 },
+            { names = { 'bombilla', 'batterycarox', 'freinox', 'exhaustox' },          minValue = 1, maxValue = 1, probability = 20 },
+            { names = { 'tornillos', 'oxtuercas', 'oxresorte' },                       minValue = 1, maxValue = 3, probability = 15 },
+        }
+    },
+}
+
+Config.Types['prop_ammobox'] = {
+    fixedLoots = {},
+    probabilityLoots = {
+        loop = 2,
+        items = {
+            { names = { 'ammo-9', 'ammo-45' },             minValue = 5,  maxValue = 15, probability = 40 },
+            { names = { 'ammo-shotgun', 'ammo-rifle' },     minValue = 5,  maxValue = 10, probability = 30 },
+            { names = { 'emptyammo9', 'emptyammo45' },      minValue = 5,  maxValue = 10, probability = 20 },
+        }
+    },
+}
+
+Config.Types['prop_ammobox_big'] = {
+    fixedLoots = {},
+    probabilityLoots = {
+        loop = 4,
+        items = {
+            { names = { 'ammo-9', 'ammo-45' },             minValue = 10, maxValue = 30, probability = 35 },
+            { names = { 'ammo-shotgun', 'ammo-rifle' },     minValue = 10, maxValue = 20, probability = 30 },
+            { names = { 'ammo-sniper' },                    minValue = 5,  maxValue = 10, probability = 15 },
+            { names = { 'emptyammo9', 'emptyammo5_56' },   minValue = 10, maxValue = 20, probability = 15 },
+        }
+    },
+}
+
+Config.Types['prop_guncase'] = {
+    fixedLoots = {},
+    probabilityLoots = {
+        loop = 1,
+        items = {
+            { names = { 'bpsnspistol', 'appistol_part_1', 'appistol_part_2' }, minValue = 1, maxValue = 1, probability = 30 },
+            { names = { 'ammo-9', 'ammo-45' },                                  minValue = 5, maxValue = 15, probability = 50 },
+        }
+    },
+}
+
+Config.Types['prop_atm'] = {
+    fixedLoots = {},
+    probabilityLoots = {
+        loop = 1,
+        items = {
+            { names = { 'money' }, minValue = 50, maxValue = 300, probability = 80 },
+        }
+    },
+}
+
+-- ============================================================
 --  MALETIN DE JUGADOR ABATIDO
 -- ============================================================
 

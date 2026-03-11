@@ -18,6 +18,22 @@ local ESX = exports['es_extended']:getSharedObject()
 local bodyStates = {}
 
 -- ============================================================
+--  ESTADO DE PROPS (cooldown global en memoria)
+--
+--  propStates[propKey] = {
+--    lastLooted = os.time()   => timestamp del ultimo saqueo
+--    items      = { ... }     => loot generado (persiste durante el cooldown)
+--  }
+--  propKey = "modelName_x_y_z" redondeado a 1 decimal
+-- ============================================================
+
+local propStates = {}
+
+local function getPropKey(modelName, x, y, z)
+    return string.format('%s_%.1f_%.1f_%.1f', modelName, x, y, z)
+end
+
+-- ============================================================
 --  FUNCION: Generar loot segun Config.Types
 -- ============================================================
 
@@ -280,6 +296,116 @@ local function isProtected(itemName)
     end
     return false
 end
+
+-- ============================================================
+--  EVENTO: Pedir loot de un prop
+-- ============================================================
+
+RegisterNetEvent('AX_Looting:server:requestPropLoot', function(lootType, x, y, z, modelName)
+    local src    = source
+    local player = ESX.GetPlayerFromId(src)
+    if not player then return end
+
+    -- Validar lootType
+    if not Config.Types[lootType] then return end
+
+    local propKey = getPropKey(modelName, x, y, z)
+    local now     = os.time()
+    local state   = propStates[propKey]
+
+    -- Verificar cooldown global
+    if state and state.lastLooted then
+        local elapsed = now - state.lastLooted
+        if elapsed < Config.PropLoot.cooldown then
+            TriggerClientEvent('AX_Looting:client:propOnCooldown', src, Config.PropLoot.cooldown - elapsed)
+            return
+        end
+    end
+
+    -- Generar loot fresco (cooldown expirado o primer saqueo)
+    local loot = generateLoot(lootType)
+    if #loot == 0 then
+        TriggerClientEvent('AX_Looting:client:noLoot', src)
+        return
+    end
+
+    propStates[propKey] = {
+        lastLooted = now,
+        items      = loot,
+        inUseBy    = src,
+    }
+
+    TriggerClientEvent('AX_Looting:client:openPropLootUI', src, enrichWithLabels(loot), propKey)
+end)
+
+-- ============================================================
+--  EVENTO: Recoger item individual de prop
+--  (el cliente manda activeNetId = "prop_<propKey>")
+-- ============================================================
+
+RegisterNetEvent('AX_Looting:server:collectPropItem', function(propKey, itemName, itemCount)
+    local src    = source
+    local player = ESX.GetPlayerFromId(src)
+    if not player then return end
+
+    local state = propStates[propKey]
+    if not state then return end
+
+    itemName  = tostring(itemName):lower():gsub('[^%a%d_%-]', '')
+    itemCount = math.floor(tonumber(itemCount) or 1)
+    if itemCount <= 0 or itemName == '' then return end
+
+    local found = false
+    for i, item in ipairs(state.items) do
+        if item.name == itemName and item.count == itemCount then
+            table.remove(state.items, i)
+            found = true
+            break
+        end
+    end
+    if not found then return end
+
+    if itemName == 'money' then
+        player.addMoney(itemCount)
+        TriggerClientEvent('esx:showNotification', src, 'Recogiste $' .. itemCount)
+    else
+        player.addInventoryItem(itemName, itemCount)
+        TriggerClientEvent('esx:showNotification', src, 'Recogiste ' .. itemCount .. 'x ' .. itemName)
+    end
+end)
+
+-- ============================================================
+--  EVENTO: Recoger todos los items de prop
+-- ============================================================
+
+RegisterNetEvent('AX_Looting:server:collectAllProp', function(propKey, items)
+    local src    = source
+    local player = ESX.GetPlayerFromId(src)
+    if not player then return end
+
+    local state = propStates[propKey]
+    if not state then return end
+    if type(items) ~= 'table' or #items > 30 then return end
+    if #items > #state.items then return end
+
+    for _, item in ipairs(items) do
+        if type(item) == 'table' and item.name and item.count then
+            local name  = tostring(item.name):lower():gsub('[^%a%d_%-]', '')
+            local count = math.floor(tonumber(item.count) or 1)
+            if count > 0 and name ~= '' then
+                if name == 'money' then
+                    player.addMoney(count)
+                else
+                    player.addInventoryItem(name, count)
+                end
+            end
+        end
+    end
+
+    state.items = {}
+    TriggerClientEvent('esx:showNotification', src, 'Recogiste todos los items')
+    TriggerClientEvent('AX_Looting:client:closePropUI', src)  -- <-- línea nueva
+end)
 
 RegisterNetEvent('esx:onPlayerDeath', function(data)
     local src    = source

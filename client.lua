@@ -118,7 +118,12 @@ end)
 -- Recoger un item individual
 RegisterNUICallback('collectItem', function(data, cb)
     if data and data.name and data.count and activeNetId then
-        TriggerServerEvent('AX_Looting:server:collectItem', activeNetId, data.name, data.count)
+        if type(activeNetId) == 'string' and activeNetId:sub(1, 5) == 'prop_' then
+            local propKey = activeNetId:sub(6)
+            TriggerServerEvent('AX_Looting:server:collectPropItem', propKey, data.name, data.count)
+        else
+            TriggerServerEvent('AX_Looting:server:collectItem', activeNetId, data.name, data.count)
+        end
     end
     cb('ok')
 end)
@@ -126,10 +131,13 @@ end)
 -- Recoger todos (el servidor mandara deletePed despues)
 RegisterNUICallback('collectAll', function(data, cb)
     if data and data.items and activeNetId then
-        TriggerServerEvent('AX_Looting:server:collectAll', activeNetId, data.items)
+        if type(activeNetId) == 'string' and activeNetId:sub(1, 5) == 'prop_' then
+            local propKey = activeNetId:sub(6)
+            TriggerServerEvent('AX_Looting:server:collectAllProp', propKey, data.items)
+        else
+            TriggerServerEvent('AX_Looting:server:collectAll', activeNetId, data.items)
+        end
     end
-    -- No llamamos closeUI aqui, esperamos el evento deletePed del servidor
-    -- que disparara el fade y luego cerramos
     cb('ok')
 end)
 
@@ -172,6 +180,16 @@ RegisterNetEvent('AX_Looting:client:deletePed', function(netId)
         Wait(400)
         fadeAndDeletePed(netId)
     end)
+end)
+
+-- Agregar junto a los demás RegisterNetEvent del cliente:
+RegisterNetEvent('AX_Looting:client:closePropUI', function()
+    if isUIOpen then
+        isUIOpen    = false
+        activeNetId = nil
+        SetNuiFocus(false, false)
+        SendNUIMessage({ action = 'closeLoot' })
+    end
 end)
 
 -- ============================================================
@@ -533,5 +551,148 @@ CreateThread(function()
                 Wait(500)
             end
         end
+    end
+end)
+
+-- ============================================================
+--  LOOT DE PROPS
+-- ============================================================
+
+local nearbyProp    = nil   -- { entity, hash, modelName, lootType, coords }
+local isSearchingProp = false
+
+-- Construye un lookup hash->modelName una sola vez al arrancar
+local propHashLookup = {}
+for modelName, _ in pairs(Config.PropLoot.models) do
+    propHashLookup[GetHashKey(modelName)] = modelName
+end
+
+-- ============================================================
+--  THREAD - Deteccion de props cercanos (cada 600ms)
+-- ============================================================
+
+CreateThread(function()
+    while true do
+        if isUIOpen or isSearching or isSearchingProp then
+            nearbyProp = nil
+            Wait(600)
+        else
+            local playerCoords = GetEntityCoords(PlayerPedId())
+            local found        = nil
+
+            local objects = GetGamePool('CObject')
+            for _, obj in ipairs(objects) do
+                local objCoords = GetEntityCoords(obj)
+                local dist      = #(playerCoords - objCoords)
+                if dist <= Config.PropLoot.drawDistance then
+                    local hash      = GetEntityModel(obj)
+                    local modelName = propHashLookup[hash]
+                    if modelName then
+                        found = {
+                            entity    = obj,
+                            hash      = hash,
+                            modelName = modelName,
+                            lootType  = Config.PropLoot.models[modelName],
+                            coords    = objCoords,
+                        }
+                        break
+                    end
+                end
+            end
+
+            nearbyProp = found
+            Wait(600)
+        end
+    end
+end)
+
+-- ============================================================
+--  THREAD - Notificacion + tecla E para props
+-- ============================================================
+
+CreateThread(function()
+    while true do
+        if nearbyProp and not isUIOpen and not isSearching and not isSearchingProp then
+            ESX.ShowHelpNotification('[E] para buscar en el objeto')
+
+            if IsControlJustPressed(0, 38) then -- E
+                local prop = nearbyProp
+                isSearchingProp = true
+
+                exports['AX_ProgressBar']:Progress({
+                    duration        = Config.PropLoot.progressBar.duration,
+                    label           = Config.PropLoot.progressBar.label,
+                    useWhileDead    = false,
+                    canCancel       = true,
+                    controlDisables = {
+                        disableMovement    = true,
+                        disableCarMovement = true,
+                        disableMouse       = false,
+                        disableCombat      = true,
+                    },
+                    animation = {
+                        animDict = Config.PropLoot.progressBar.animDict,
+                        anim     = Config.PropLoot.progressBar.anim,
+                        flags    = Config.PropLoot.progressBar.flags,
+                    },
+                }, function(cancelled)
+                    isSearchingProp = false
+                    if cancelled then return end
+
+                    -- Verificar que el prop sigue cerca
+                    if not DoesEntityExist(prop.entity) then return end
+                    local dist = #(GetEntityCoords(PlayerPedId()) - GetEntityCoords(prop.entity))
+                    if dist > Config.PropLoot.drawDistance + 1.0 then
+                        ESX.ShowNotification('Te alejaste demasiado')
+                        return
+                    end
+
+                    -- Usar coords como identificador unico del prop
+                    local coords = GetEntityCoords(prop.entity)
+                    TriggerServerEvent('AX_Looting:server:requestPropLoot',
+                        prop.lootType,
+                        coords.x, coords.y, coords.z,
+                        prop.modelName
+                    )
+                end)
+            end
+
+            Wait(0)
+        else
+            Wait(500)
+        end
+    end
+end)
+
+-- ============================================================
+--  EVENTO: abrir UI de prop (reutiliza la misma UI de zombies)
+-- ============================================================
+
+RegisterNetEvent('AX_Looting:client:openPropLootUI', function(loot, propKey)
+    -- Reutilizamos openUI pero guardamos propKey en activeNetId
+    -- con prefijo "prop_" para distinguirlo en los NUI callbacks
+    isUIOpen    = true
+    activeNetId = 'prop_' .. propKey
+    SetNuiFocus(true, true)
+    SendNUIMessage({
+        action      = 'openLoot',
+        items       = loot,
+        imagePath   = Config.InventoryImagePath,
+        revealDelay = Config.CardRevealDelay,
+        title       = 'OBJETOS ENCONTRADOS',
+    })
+end)
+
+-- ============================================================
+--  EVENTO: prop en cooldown
+-- ============================================================
+
+RegisterNetEvent('AX_Looting:client:propOnCooldown', function(secondsLeft)
+    local mins = math.floor(secondsLeft / 60)
+    local secs = secondsLeft % 60
+    if mins > 0 then
+        ESX.ShowNotification(string.format('Este objeto fue revisado recientemente. Vuelve en %d min %d seg', mins, secs))
+    else
+        ESX.ShowNotification(string.format('Este objeto fue revisado recientemente. Vuelve en %d seg', secs))
     end
 end)
